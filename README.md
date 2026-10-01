@@ -32,6 +32,7 @@ bash linux/defaults.sh   # Linux with GNOME
 
 | Path | Contents |
 | --- | --- |
+| [`ACCESSIBILITY.md`](ACCESSIBILITY.md) | Larger Dock icons, a still clock, visible extensions and predictable layouts |
 | [`common/`](common/) | The shared preference model |
 | [`mac/`](mac/) | macOS implementation |
 | [`linux/`](linux/) | GNOME implementation |
