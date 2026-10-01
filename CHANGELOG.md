@@ -15,3 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A shared cross-platform preference model
 - Setup and reference guides
 - CI that lints the scripts and the markdown
+- `ACCESSIBILITY.md`: larger Dock icons, a still clock, visible extensions and predictable layouts.
+
+### Changed
+
+- Tidied code comments and the contributor guide.
