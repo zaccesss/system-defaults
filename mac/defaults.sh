@@ -1,50 +1,141 @@
 #!/usr/bin/env bash
 #
-# macOS system preferences, each one read with `defaults read <domain> <key>` before being
-# written here. Safe to run more than once, `defaults write` sets values outright. See
-# guides/reference.md for what each setting does.
+# macOS preferences, captured from a Mac as they really are and replayed on the next one.
+#
+#   bash mac/defaults.sh             apply defaults.tsv, writing only values that differ
+#   bash mac/defaults.sh --capture   record this Mac's values for the keys in tracked.txt
+#
+# Nothing is hard-coded: tracked.txt names the keys and defaults.tsv holds the values a real Mac
+# has. A setting chosen on purpose (contrast, pointer size, input behaviour) therefore comes across
+# exactly as chosen. A key nobody set is left at the system default. Written for the bash 3.2 that
+# ships with macOS, since it runs on a new Mac before Homebrew exists.
 
-set -euo pipefail
+set -Eeuo pipefail
 
-echo "Applying macOS defaults..."
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRACKED_FILE="${DEFAULTS_TRACKED_FILE:-$HERE/tracked.txt}"
+VALUES_FILE="${DEFAULTS_VALUES_FILE:-$HERE/defaults.tsv}"
 
-# --- Dock ---
-defaults write com.apple.dock tilesize -int 128
-defaults write com.apple.dock minimize-to-application -bool true
-defaults write com.apple.dock show-recents -bool false
-defaults write com.apple.dock mru-spaces -bool false
-defaults write com.apple.dock wvous-br-corner -int 14
-defaults write com.apple.dock wvous-br-corner-modifier -int 0
+info() { printf '[INFO] %s\n' "$*"; }
+ok() { printf '[ OK ] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*" >&2; }
 
-# --- Finder ---
-defaults write com.apple.finder FXPreferredViewStyle -string "Nlsv"
-defaults write com.apple.finder FXDefaultSearchScope -string "SCev"
-defaults write com.apple.finder FXRemoveOldTrashItems -bool true
-defaults write com.apple.finder NewWindowTarget -string "PfHm"
+# maps the type `defaults read-type` reports to the flag `defaults write` takes. Lists and
+# dictionaries are left out on purpose: none of the tracked keys use them. Replaying them would need
+# per-key care
+type_flag() {
+    case "$1" in
+        boolean) printf -- '-bool\n' ;;
+        integer) printf -- '-int\n' ;;
+        float) printf -- '-float\n' ;;
+        string) printf -- '-string\n' ;;
+        *) return 1 ;;
+    esac
+}
 
-# --- Global (all apps) ---
-defaults write NSGlobalDomain AppleShowAllExtensions -bool true
+# `defaults read` prints booleans as 1 and 0, which `defaults write -bool` accepts back as is
+capture() {
+    local domain key value kind count=0
+    local tmp
+    tmp="$(mktemp)"
 
-# --- Trackpad ---
-defaults write com.apple.AppleMultitouchTrackpad Clicking -bool false
-defaults write com.apple.AppleMultitouchTrackpad TrackpadThreeFingerDrag -bool false
-defaults write com.apple.AppleMultitouchTrackpad TrackpadRightClick -bool true
+    # a plain header row and no comments, so GitHub shows the file as a searchable table
+    printf 'domain\tkey\ttype\tvalue\n' > "$tmp"
 
-# --- Screenshots ---
-mkdir -p "$HOME/Pictures/Screenshots"
-defaults write com.apple.screencapture location -string "$HOME/Pictures/Screenshots"
+    while read -r domain key; do
+        [[ -z "$domain" || "$domain" == \#* ]] && continue
 
-# --- Menu bar clock ---
-defaults write com.apple.menuextra.clock ShowAMPM -bool true
-defaults write com.apple.menuextra.clock ShowDayOfWeek -bool true
-defaults write com.apple.menuextra.clock ShowDate -int 0
-defaults write com.apple.menuextra.clock ShowSeconds -bool false
-defaults write com.apple.menuextra.clock IsAnalog -bool false
-defaults write com.apple.menuextra.clock FlashDateSeparators -bool false
+        # a key that is not set makes read-type fail, which only means there is nothing to record.
+        # The failure is absorbed inside the substitution because bash 3.2 fires the ERR trap there
+        # even when the caller handles it
+        kind="$(defaults read-type "$domain" "$key" 2>/dev/null || true)"
+        [[ -n "$kind" ]] || continue
+        kind="${kind#Type is }"
+        type_flag "$kind" >/dev/null || continue
 
-echo "Restarting Dock, Finder and SystemUIServer to pick up the changes..."
-killall Dock 2>/dev/null || true
-killall Finder 2>/dev/null || true
-killall SystemUIServer 2>/dev/null || true
+        value="$(defaults read "$domain" "$key" 2>/dev/null || true)"
+        # a home path is stored with ~ so the file works for any user name
+        value="${value/#$HOME/~}"
 
-echo "Done."
+        printf '%s\t%s\t%s\t%s\n' "$domain" "$key" "$kind" "$value" >> "$tmp"
+        count=$((count + 1))
+    done < "$TRACKED_FILE"
+
+    mv "$tmp" "$VALUES_FILE"
+    ok "Captured ${count} settings into ${VALUES_FILE}"
+}
+
+RESTART_DOCK=0
+RESTART_FINDER=0
+RESTART_UI_SERVER=0
+UNWRITABLE=()
+
+note_restart() {
+    case "$1" in
+        com.apple.dock) RESTART_DOCK=1 ;;
+        com.apple.finder|com.apple.desktopservices) RESTART_FINDER=1 ;;
+        com.apple.screencapture|com.apple.menuextra.clock) RESTART_UI_SERVER=1 ;;
+    esac
+}
+
+apply_setting() {
+    local domain="$1" key="$2" kind="$3" value="$4"
+    local flag current
+
+    flag="$(type_flag "$kind")" || return 0
+
+    # a path may be stored either with ~ or spelt out in full; both mean the same folder, so
+    # neither form is rewritten into the other
+    current="$(defaults read "$domain" "$key" 2>/dev/null || true)"
+    if [[ "$current" == "$value" || "$current" == "${value/#\~/$HOME}" ]]; then
+        return 0
+    fi
+
+    # screenshots fail silently when their folder does not exist yet
+    if [[ "$domain" == "com.apple.screencapture" && "$key" == "location" ]]; then
+        mkdir -p "${value/#\~/$HOME}"
+    fi
+
+    if defaults write "$domain" "$key" "$flag" "$value" 2>/dev/null; then
+        info "Set ${domain} ${key} to ${value}"
+        note_restart "$domain"
+    else
+        UNWRITABLE+=("${domain} ${key} = ${value}")
+    fi
+}
+
+apply() {
+    if [[ ! -f "$VALUES_FILE" ]]; then
+        warn "No captured settings at ${VALUES_FILE}; run with --capture on a set-up Mac first"
+        return 0
+    fi
+
+    local domain key kind value
+    while IFS=$'\t' read -r domain key kind value; do
+        [[ -z "$domain" || "$domain" == \#* || "$domain" == "domain" ]] && continue
+        apply_setting "$domain" "$key" "$kind" "$value"
+    done < "$VALUES_FILE"
+
+    # restarting only what changed means a run on a Mac that already matches never flickers the
+    # Dock or closes Finder windows
+    if (( RESTART_DOCK )); then killall Dock 2>/dev/null || true; fi
+    if (( RESTART_FINDER )); then killall Finder 2>/dev/null || true; fi
+    if (( RESTART_UI_SERVER )); then killall SystemUIServer 2>/dev/null || true; fi
+
+    if (( ${#UNWRITABLE[@]} > 0 )); then
+        warn "macOS did not allow these to be set from a script; set them in System Settings:"
+        local entry
+        for entry in "${UNWRITABLE[@]}"
+        do
+            warn "  ${entry}"
+        done
+    fi
+
+    ok "macOS settings match the captured ones"
+}
+
+case "${1:-}" in
+    --capture) capture ;;
+    "") apply ;;
+    *) printf 'Usage: %s [--capture]\n' "$0" >&2; exit 2 ;;
+esac

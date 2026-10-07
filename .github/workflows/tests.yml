@@ -1,0 +1,58 @@
+name: Tests
+
+# runs each platform's tests on that platform: the macOS script on the stock bash 3.2 and the
+# Windows script on a Windows runner, including a registry round trip on a throwaway key
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac-tests:
+    name: macOS tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # the stock bash 3.2 a new Mac has, before Homebrew installs anything newer
+      - name: Run the macOS defaults tests
+        run: /bin/bash tests/mac-defaults-test.sh
+
+  windows-tests:
+    name: Windows tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install test modules
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $findings = Invoke-ScriptAnalyzer -Path ./windows -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost
+          $findings | Format-Table -AutoSize
+          if ($findings) { exit 1 }
+
+      # includes a registry round trip on a throwaway key under HKCU
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $result = Invoke-Pester ./tests -PassThru -Output Detailed
+          if ($result.FailedCount -gt 0) { exit 1 }

@@ -4,11 +4,27 @@ Choose the implementation for the platform you are configuring.
 
 ## macOS
 
-1. Review [mac/defaults.sh](../mac/defaults.sh) and [guides/reference.md](reference.md) first,
-   since this script changes real system behaviour the moment it runs.
-2. Run it: `bash mac/defaults.sh`.
-3. The script restarts Dock, Finder and SystemUIServer itself so most changes take effect
-   immediately, no logout or reboot needed.
+1. On a Mac already set up the way you like, record its settings with
+   `bash mac/defaults.sh --capture`. Only keys listed in [mac/tracked.txt](../mac/tracked.txt) that
+   are actually set get recorded in `mac/defaults.tsv`. The file shipped here holds example values.
+2. Review `mac/defaults.tsv` and [guides/reference.md](reference.md), since applying changes real
+   system behaviour.
+3. Apply it on the next Mac with `bash mac/defaults.sh`. Only values that differ are written, and
+   the Dock, Finder or SystemUIServer restart only when one of their own settings changed.
+4. Settings macOS refuses to write from a script (some accessibility ones) are listed at the end so
+   they can be set in System Settings.
+
+To carry another setting, add its `domain key` line to `mac/tracked.txt` and capture again.
+
+## Windows
+
+1. On a PC set up the way you like, record its settings with `.\windows\defaults.ps1 -Capture`.
+   [windows/tracked.txt](../windows/tracked.txt) lists the registry values, all under
+   HKEY_CURRENT_USER, so no administrator rights are needed. The values file ships empty.
+2. On the next PC, preview with `.\windows\defaults.ps1 -Plan`, then apply with
+   `.\windows\defaults.ps1`. Only values that differ are written.
+3. Explorer restarts only when a taskbar or Explorer setting changed. Some input and accessibility
+   settings apply after signing out and back in; the script says when.
 
 ## Linux
 

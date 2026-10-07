@@ -64,8 +64,8 @@ assignment, since the macOS side has no corresponding preference.
 
 ## macOS
 
-Every setting in `mac/defaults.sh` was confirmed with `defaults read <domain> <key>` before being
-written, not assumed from a popular dotfiles script found online.
+The values in `mac/defaults.tsv` were captured with `bash mac/defaults.sh --capture` from a real Mac,
+not guessed or copied from a popular dotfiles script. The tables below explain what each one does.
 
 ### Dock
 
