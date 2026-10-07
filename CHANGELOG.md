@@ -11,6 +11,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- macOS settings are captured from a real Mac (`bash mac/defaults.sh --capture`) using the keys in `mac/tracked.txt`, then applied by writing only values that differ. Accessibility settings such as pointer size and contrast are tracked too.
+- A Windows implementation built the same way: `windows/tracked.txt` lists 33 HKEY_CURRENT_USER registry values, `windows/defaults.ps1 -Capture` records them and `-Plan` previews changes.
+- Tests for both scripts, each on its own platform's CI runner.
+
+### Added
+
 - Initial release: a macOS `defaults write` script and a GNOME `gsettings` script
 - A shared cross-platform preference model
 - Setup and reference guides
