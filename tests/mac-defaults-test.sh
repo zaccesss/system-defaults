@@ -42,10 +42,21 @@ case "\$1" in
         echo "\$line" | cut -d'|' -f4- ;;
     write)
         [ "\$2" = "\${DEFAULTS_REFUSE:-none}" ] && exit 1
-        case "\$4" in -bool) t=boolean;; -int) t=integer;; -float) t=float;; *) t=string;; esac
-        grep -v -F "\$2|\$3|" "\$db" > "\$db.tmp" || true
+        d="\$2"; k="\$3"
+        case "\$4" in
+            -bool) t=boolean; v="\$5" ;;
+            -int) t=integer; v="\$5" ;;
+            -float) t=float; v="\$5" ;;
+            -dict)
+                # stored the way defaults read prints a dictionary, on one line
+                t=dictionary; shift 4; v="{"
+                while [ \$# -gt 0 ]; do n="\$1"; shift; [ "\$1" = -float ] && shift; v="\$v \$n = \$1;"; shift; done
+                v="\$v }" ;;
+            *) t=string; v="\$5" ;;
+        esac
+        grep -v -F "\$d|\$k|" "\$db" > "\$db.tmp" || true
         mv "\$db.tmp" "\$db"
-        echo "\$2|\$3|\$t|\$5" >> "\$db" ;;
+        echo "\$d|\$k|\$t|\$v" >> "\$db" ;;
 esac
 EOF
 printf '#!/bin/bash\nprintf "killall %%s\\n" "$*" >> "%s"\n' "$CALLS" > "$STUBS/killall"
@@ -97,7 +108,24 @@ assert_contains "com.apple.universalaccess increaseContrast = 1" "$output"
 assert_contains "System Settings" "$output"
 pass "settings macOS refuses are listed for System Settings instead of failing the run"
 
-awk -F'\t' 'NR > 1 && NF && (NF != 4 || $3 !~ /^(boolean|integer|float|string)$/) { bad = 1 } END { exit bad }' "$REPO_ROOT/mac/defaults.tsv" \
+printf '%s\n' 'com.apple.universalaccess|cursorFill|dictionary|{ alpha = 1; blue = 0; green = "0.98"; red = "0.99"; }' > "$DB"
+run --capture >/dev/null
+assert_contains "$(printf 'com.apple.universalaccess\tcursorFill\tcolour\t0.99 0.98 0 1')" "$(cat "$VALUES")" "capture"
+pass "a colour dictionary is captured as red, green, blue and alpha on one line"
+
+run >/dev/null
+assert_not_contains "defaults write" "$(cat "$CALLS")" "calls"
+: > "$DB"
+run >/dev/null
+assert_contains "defaults write com.apple.universalaccess cursorFill -dict red -float 0.99 green -float 0.98 blue -float 0 alpha -float 1" "$(cat "$CALLS")" "calls"
+pass "a colour matching the Mac is left alone and a missing one is written as a typed dictionary"
+
+: > "$DB"
+output="$(DEFAULTS_REFUSE=com.apple.universalaccess run 2>&1)"
+assert_contains "cursorFill = 0.99 0.98 0 1 (red green blue alpha)" "$output"
+pass "a refused colour is listed for System Settings with its channels named"
+
+awk -F'\t' 'NR > 1 && NF && (NF != 4 || $3 !~ /^(boolean|integer|float|string|colour)$/) { bad = 1 } END { exit bad }' "$REPO_ROOT/mac/defaults.tsv" \
     || fail "mac/defaults.tsv has a malformed row"
 pass "the committed mac/defaults.tsv has four valid fields on every row"
 

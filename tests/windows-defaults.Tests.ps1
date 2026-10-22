@@ -25,9 +25,10 @@ Describe 'registry round trip' -Skip:(-not $script:OnWindows) {
         New-Item -Path $script:Key -Force | Out-Null
         New-ItemProperty -Path $script:Key -Name Number -Value 7 -PropertyType DWord -Force | Out-Null
         New-ItemProperty -Path $script:Key -Name Folder -Value "$HOME\Pictures\Shots" -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $script:Key -Name Expanded -Value "$HOME\Pictures\Screenshots" -PropertyType ExpandString -Force | Out-Null
         $script:Tracked = Join-Path $TestDrive 'tracked.txt'
         $script:Values = Join-Path $TestDrive 'defaults.tsv'
-        Set-Content $script:Tracked @("$script:Key Number", "$script:Key Folder", "$script:Key Missing")
+        Set-Content $script:Tracked @("$script:Key Number", "$script:Key Folder", "$script:Key Expanded", "$script:Key Missing")
     }
 
     AfterAll { Remove-Item -Path $script:Key -Recurse -Force -ErrorAction SilentlyContinue }
@@ -35,7 +36,7 @@ Describe 'registry round trip' -Skip:(-not $script:OnWindows) {
     It 'captures only values that are set, with home paths made portable' {
         & $script:Script -Capture -TrackedFile $script:Tracked -ValuesFile $script:Values | Out-Null
         $rows = Import-Csv $script:Values -Delimiter "`t"
-        $rows.Count | Should -Be 2
+        $rows.Count | Should -Be 3
         ($rows | Where-Object name -eq 'Folder').value | Should -Be '%USERPROFILE%\Pictures\Shots'
     }
 
@@ -44,6 +45,11 @@ Describe 'registry round trip' -Skip:(-not $script:OnWindows) {
         $output = & $script:Script -TrackedFile $script:Tracked -ValuesFile $script:Values 6>&1 | Out-String
         (Get-ItemProperty -Path $script:Key).Number | Should -Be 7
         $output | Should -Not -Match 'Set .* Folder'
+    }
+
+    It 'treats an expandable home path as matching in either form' {
+        $output = & $script:Script -Plan -TrackedFile $script:Tracked -ValuesFile $script:Values 6>&1 | Out-String
+        $output | Should -Not -Match 'Would set .* Expanded'
     }
 
     It 'changes nothing in plan mode' {

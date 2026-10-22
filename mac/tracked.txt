@@ -79,6 +79,9 @@ com.apple.universalaccess reduceTransparency
 com.apple.universalaccess reduceMotion
 com.apple.universalaccess differentiateWithoutColor
 com.apple.universalaccess mouseDriverCursorSize
+com.apple.universalaccess cursorIsCustomized
+com.apple.universalaccess cursorFill
+com.apple.universalaccess cursorOutline
 com.apple.universalaccess closeViewHotkeysEnabled
 com.apple.universalaccess closeViewScrollWheelToggle
 com.apple.universalaccess closeViewSmoothImages
