@@ -20,9 +20,9 @@ info() { printf '[INFO] %s\n' "$*"; }
 ok() { printf '[ OK ] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
 
-# maps the type `defaults read-type` reports to the flag `defaults write` takes. Lists and
-# dictionaries are left out on purpose: none of the tracked keys use them. Replaying them would need
-# per-key care
+# maps the type `defaults read-type` reports to the flag `defaults write` takes. Lists and general
+# dictionaries are left out on purpose: none of the tracked keys use them and replaying them would
+# need per-key care. Colour dictionaries are the one exception, handled by colour_of below
 type_flag() {
     case "$1" in
         boolean) printf -- '-bool\n' ;;
@@ -31,6 +31,16 @@ type_flag() {
         string) printf -- '-string\n' ;;
         *) return 1 ;;
     esac
+}
+
+# a colour such as the pointer fill is a dictionary of red, green, blue and alpha. It is stored as
+# those four numbers in that order, so the values file stays one line per setting. Any other
+# dictionary fails here and is skipped
+colour_of() {
+    tr ';{}' '\n  ' | awk -F'=' '
+        { gsub(/[ "\t]/, "", $1); gsub(/[ "\t]/, "", $2) }
+        $1 == "red" { r = $2 } $1 == "green" { g = $2 } $1 == "blue" { b = $2 } $1 == "alpha" { a = $2 }
+        END { if (r == "" || g == "" || b == "" || a == "") exit 1; print r " " g " " b " " a }'
 }
 
 # `defaults read` prints booleans as 1 and 0, which `defaults write -bool` accepts back as is
@@ -51,6 +61,13 @@ capture() {
         kind="$(defaults read-type "$domain" "$key" 2>/dev/null || true)"
         [[ -n "$kind" ]] || continue
         kind="${kind#Type is }"
+        if [[ "$kind" == "dictionary" ]]; then
+            value="$(defaults read "$domain" "$key" 2>/dev/null | colour_of 2>/dev/null || true)"
+            [[ -n "$value" ]] || continue
+            printf '%s\t%s\tcolour\t%s\n' "$domain" "$key" "$value" >> "$tmp"
+            count=$((count + 1))
+            continue
+        fi
         type_flag "$kind" >/dev/null || continue
 
         value="$(defaults read "$domain" "$key" 2>/dev/null || true)"
@@ -82,6 +99,11 @@ apply_setting() {
     local domain="$1" key="$2" kind="$3" value="$4"
     local flag current
 
+    if [[ "$kind" == "colour" ]]; then
+        apply_colour "$domain" "$key" "$value"
+        return 0
+    fi
+
     flag="$(type_flag "$kind")" || return 0
 
     # a path may be stored either with ~ or spelt out in full; both mean the same folder, so
@@ -101,6 +123,23 @@ apply_setting() {
         note_restart "$domain"
     else
         UNWRITABLE+=("${domain} ${key} = ${value}")
+    fi
+}
+
+apply_colour() {
+    local domain="$1" key="$2" value="$3"
+    local current red green blue alpha
+
+    current="$(defaults read "$domain" "$key" 2>/dev/null | colour_of 2>/dev/null || true)"
+    [[ "$current" == "$value" ]] && return 0
+
+    read -r red green blue alpha <<< "$value"
+    if defaults write "$domain" "$key" -dict red -float "$red" green -float "$green" \
+        blue -float "$blue" alpha -float "$alpha" 2>/dev/null; then
+        info "Set ${domain} ${key} to ${value}"
+        note_restart "$domain"
+    else
+        UNWRITABLE+=("${domain} ${key} = ${value} (red green blue alpha)")
     fi
 }
 

@@ -97,7 +97,8 @@ function Invoke-Apply {
     $signInNeeded = $false
     $rows = Import-Csv -Path $script:Values -Delimiter "`t"
     foreach ($row in $rows) {
-        $value = if ($row.type -eq 'String') { ConvertFrom-Portable $row.value } else { $row.value }
+        # both string kinds carry home paths in portable form, so both turn back into this user's home
+        $value = if ($row.type -in 'String', 'ExpandString') { ConvertFrom-Portable $row.value } else { $row.value }
 
         $current = $null
         if (Test-Path $row.path) {
@@ -107,6 +108,9 @@ function Invoke-Apply {
             }
         }
         if ($current -eq $row.value -or $current -eq $value) { continue }
+        # an expandable path may be stored as %USERPROFILE%\... or spelt out in full; both name the same folder
+        if ($null -ne $current -and $row.type -eq 'ExpandString' -and
+            [Environment]::ExpandEnvironmentVariables($current) -eq [Environment]::ExpandEnvironmentVariables($value)) { continue }
 
         if ($script:PlanMode) {
             Write-Info "Would set $($row.path) $($row.name) to $($row.value)"
