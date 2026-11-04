@@ -10,5 +10,3 @@ This repository's operating system settings have moved to the `setup/defaults` f
 
 > [!NOTE]
 > This repository is archived and read-only.
-
-![The first lines of defaults.tsv as they look in the Zacess Deep Contrast Dark theme](docs/images/preview.png)
